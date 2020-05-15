@@ -1,0 +1,28 @@
+Package: srgs
+Type: Package
+Title: Simulating Random Guess Scores
+Version: 0.1.0
+Authors@R: person("Samuel", "Milsom", email = "stm1g16@soton.ac.uk", 
+    role = c("aut", "cre"))
+Description: This package provides tools in which to simulate
+    scores from created tests and calculate probabilities. By
+    defining individuals questions and compiling them into
+    tests, this package uses appropriate simulation methods to
+    create distributions of random guesses so as to avoid
+    explicitly finding complicated distributions when doing so
+    maybe unnecessary.
+License: GPL-3
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.1.0
+Suggests: 
+    knitr,
+    testthat,
+    devtools,
+Imports:
+    graphics,
+    stats,
+    utils,
+VignetteBuilder: knitr
+URL: http://github.com/SamuelMilsom/srgs
+BugReports: http://github.com/SamuelMilsom/srgs/issues
