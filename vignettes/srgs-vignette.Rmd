@@ -1,0 +1,197 @@
+---
+title: "Simulating Multiple Choice Tests with `srgs`"
+author: "Samuel Milsom"
+output:
+  pdf_document: default
+  word_document: default
+  html_document:
+    df_print: paged
+vignette: |
+  %\VignetteIndexEntry{srgs} 
+  %\VignetteEngine{knitr::knitr} 
+  %\VignetteEncoding{UTF-8} 
+  %\usepackage[utf8]{inputenc}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.pos = "H",
+  fig.height = 3
+)
+library(srgs)
+set.seed(28348613)
+```
+
+# Introduction
+
+If a student takes a test, yet has no knowledge of the subject matter; what score should they expect to get? This depends on several factors, but primarily depends on the style and variation of questions. In some instances we can mathematically model these tests using well known distributions, for example we can model someone randomly guessing at a true/false test with a binomial distribution. However, these models of more trivial tests are of little interest to us, as the addition of a different style of question, or a different number of possible answers, can quickly become complicated to model mathematically. This gives rise to a need for a tool which can help us model these more complicated tests. Typically, we can simulate these random guesses to get an idea of what potential outcome we can expect for a given number of students and use the results to tailor the test to our needs. The `srgs` package provides the tools to do this.
+
+# Defining Questions
+
+In order to be able to do what we are setting out to do, we first need to be able to define questions efficiently. We do this by splitting potential questions into seperate 'styles' and then allocating parameters that define each question.
+
+Firstly, we have multiple-choice style questions. These are questions that require the test taker to make a choice. They are defined by 5 parameters:  
+1. The number of possible answers, `p`.  
+2. The number of correct answers, `c`.  
+3. The score to be awarded for correct answers, `m`.  
+4. The score to be deducted for incorrect answers, `l`.  
+5. A logical condition describing whether the score is to be awarded for answering every possible answer correctly or for each correct answer, `forall`.  
+
+Secondly, we have matching style questions. These are questions that require the test taker to pair up possible answers from 2 given sets of the same size. They are defined by 4 parameters:  
+1. The number of matches to be made, `p`.  
+2. The mark to be awrded for correct answers, `m`.  
+3. The score to be deducted for incorrect answers, `l`.  
+4. A logical condition describing whether the score is to be awarded for all matches being correct or for each correct match, `forall`.  
+
+Our `forall` condition is defined such that if `forall` is true, then the score will only be awarded is every correct answer is chosen.
+
+## Example: Defining Questions
+
+Suppose we have 2 different questions we would like to define:  
+
+1. Which of these are cities in England (pick 2)  
+Leeds  
+Bournemouth  
+St Albans  
+Nottingham  
+Watford  
+
+2. Match the capital city to its country  
+Germany........Montevideo  
+Greece...............Berlin  
+France.................Sofia  
+Uruguay...............Paris  
+Finland..............Athens  
+Bulgaria............Helsinki   
+
+For the first questions we would like to award 1 point for each correct answer, and deduct a point for incorrect answers. For the second question we want to award 3 points, but only if all 6 are correctly matched. We can create these questions like this:
+```{r eval = TRUE, echo = TRUE}
+library(srgs)
+q_1 <- gen_mc(p = 5, c = 2, m = 1, l = 1, forall = FALSE)
+q_2 <- gen_match(p = 6, m = 3)
+q_1
+q_2
+```
+
+When looking at each question we also see a recommended loss mark that will be covered later on.  
+
+# Creating Tests
+
+Now we have defined out questions, we need to be able to compile them into a test. The `compile` function stores all the necessary information about each question in the test. We do this so when simulating results, we only need to use functions on a single 'test' object as opposed to each question individiually.
+
+## Example: Creating Tests
+
+Suppose we want our test to compose of 10 questions. The first 3 questions will all be the same as `q_1` that we described above. Although in reality the questions may be different (i.e. naming cities in Spain, France etc), for the purposes of simulating a random guess we don't need to differentiate between these as long as they have identical parameters. The next 3 will all be the same as `q_2`, much like the first 3. The next 2 will be `q_3` and `q_4` described as:
+```{r eval = TRUE, echo = TRUE}
+q_3 <- gen_mc(p = 2, m = 2)
+q_4 <- gen_match(p = 4, m = 1, l = 1, forall = FALSE)
+```
+Our `compile` function will compile questions into tests.
+```{r eval = TRUE, echo = TRUE}
+test_1 <- compile(q_1, q_1, q_1, q_2, q_2, q_2, q_3, q_4)
+```
+Althought this may be reasonable with only 8 questions, in reality a test could consist of lots of very similar questions. We can use `rep` to repeat questions of the same kind into their own test and then combine those tests into 1.
+```{r eval = TRUE, echo = TRUE}
+test_1 <- rep(q_1, 3)
+test_2 <- rep(q_2, 3)
+test_34 <- compile(q_3, q_4)
+test_all <- compile(test_1, test_2, test_34)
+```
+We can see the contents of each test with `summary` or `print`
+```{r eval = TRUE, echo = TRUE}
+summary(test_34)
+summary(test_all)
+```
+Here we can see important information about the questions and the test, including the maximum possible mark and the recommended loss mark. A loss mark is a value deducted from the score if the question is answered incorrectly, following the same rules with regard to our `forall` condition as gaining a mark. Every question has a recommended loss mark, such that  
+\begin{center}
+$(\text{gained mark})P(\text{guessing correctly})+(\text{loss mark})P(\text{guessing incorrectly})\leq0$
+\end{center}  
+which ensures that the expected mark from randomly guessing is always negative. The recommended loss mark is the average of these values, as differing loss marks over a whole test is very uncommon. Alternativley we can see these with `max_mark` and `mark_loss`.
+```{r eval = TRUE, echo = TRUE}
+max_mark(test_34)
+mark_loss(test_34)
+```
+
+# Simulating Questions
+
+Now we need to simulate random results of guessing at each question. We use `q_sim`, which applies a suitable simulation method to a quesiton depending on its style and parameters. For example, for a multiple-choice question with and `forall` = `TRUE` we simply generate a $u$ from $\text{Uniform}(0,1)$ distribution and determine if
+\begin{center}
+$u<1/{p \choose c}$
+\end{center}
+as ${p \choose c}$ is all possible ways to pick $c$ of $p$, and only one is correct. Or if wanted to simulate a matching question with `forall` = `FALSE`, we use `sample(1:p)` to create a random assortment of the $p$ possible matchings and determine which of these matches was fixed in the permutation. This is because the possible matches are unordered, and we can say without loss of generality that the correct answer would be one that fixes each match. The number of correct answers is then the number of fixed matches.
+
+## Example: Simulating Questions
+
+`q_3` is a multiple-choice question with `forall` = `TRUE`, `p` = 2 and `c` = 1. Hence we would generate a $u$ and determine if it is less than $1/{2 \choose 1}=1/2$.
+```{r eval = TRUE, echo = TRUE}
+u <- runif(1, min = 0, max = 1)
+u
+isTRUE(u < (1/choose(2, 1)))
+```
+`q_4` is a matching question with `forall` = `FALSE` and `p` = 4. We create a permutation of the matches, 1 to 4, and determine how many of them remained fixed.
+```{r eval = TRUE, echo = TRUE}
+perm <- sample(1:4)
+perm
+check <- perm == (1:4)
+check
+sum(check)
+```
+
+# Simulating Tests
+
+Now we have simulation methods for each question, we can simulate an entire test. `sim_dist` will go through each question in the test and simulate a result, outputting a single test result. In order to accurately determine the distribution of the test we do this over a large sample, by default set to 10000. When we use `sim_dist`, it will output an object containing the results of the simulation, as well as the maximum possible mark for that test.
+
+Once we have a large set of results, we simply use `summary` to extract all the necessary information including mean, median, the highest mark simulated, the maximum possible mark, the estimated probabilities and the probability of passing by randomly guessing according to some pass percentage, by default set to 40%. It also produces a line graph showing the distribution of score versus probability. When determining score probabilities we make the assumption that although a loss mark may not be a whole number, any test results that are not a whole number are rounded up.
+
+## Example: Simulating Tests
+
+Lets do 2 simulations; 1 of `test_all` for 10 results that we can then see, and another of `test_all` but over the default 10000 so we can see how random results are distributed.
+```{r eval = TRUE, echo = TRUE}
+dist_10 <- sim_dist(test_all, n = 10)
+dist_10[1]
+dist_full <- sim_dist(test_all)
+summary(dist_full)
+```
+Here you can see the 10 results of `dist_10`, and all the information regarding `dist_full`. From these results we can determine that our test is well made; getting a high mark is incredibly difficult by just randomly guessing, with an estimated probability of passing by guessing being only 0.7%.
+
+# Adjusting Tests
+
+Althought the test above is well made, this is not always the case. If the probability of passing by guessing is too high, or we wish to lower the marks deducted to be more lenient we can adjust the loss mark of every question in the test with `set_loss`.
+
+## Example: Adjusting Tests
+
+Suppose we have a test that consists of 5 true/false questions that award 1 mark and 2 matching questions that award 1 mark for each correct match.
+```{r eval = TRUE, echo = TRUE}
+q_a <- gen_mc(2)
+q_b <- gen_match(5, forall = FALSE)
+test_a <- rep(q_a, 5)
+test_b <- rep(q_b, 2)
+test_full <- compile(test_a, test_b)
+```
+Let us simulate this test over 10000 test takers.
+```{r eval = TRUE, echo = TRUE}
+dist_full <- sim_dist(test_full)
+summary(dist_full)
+```
+Although it is very unlikely that someone guessing answers will score highly, we see that 27.4% of test takers are estimated to get a 40% passing mark just by guessing. This significantly reduces the validity of the test in measuring knowledge on the topic. We can see what the recommended loss mark for this test is, and adjust it using `set_loss`.
+```{r eval = TRUE, echo = TRUE}
+mark_loss(test_full)
+```
+We may wish to use this exact number, but this may seem uneccesarily complicated and potentially cause confusion for test takers. However,  as long as our loss mark is above this value we can ensure the expected mark from random guessing is negative.  
+```{r evak = TRUE, echo = TRUE}
+test_full <- set_loss(test_full, 1)
+```
+Now we can simulate our new test and see if there is any improvement.
+```{r eval = TRUE, echo = TRUE}
+dist_full <- sim_dist(test_full)
+summary(dist_full)
+```
+We immediatley see a significant improvement, with the probability of passing dropping to 2.24%. 
+
+# Conclusion
+
+In simpler cases with a large number of repetitive questions it may still be more appropriate to explicitly calculate a distribution to estimate probabilities, for example random guesses at a test containing a large number of true/false questions could be modelled with a binomial distribution. `srgs` also has some limitations. For example tests involving text based answers are significantly more difficult to simulate random guesses at due to the enourmous variety of possible answers.  
+
+`srgs` is much more sutiable in analysing tests that involve questions with distinct answers. These kinds of tests tend to be marked by a machine and taken by a large number of people, such as a driving theory test or aschool entrance exam. For these tests `srgs` contains everything you might need in analysing tests to ensure results are protected against random guessing. 
