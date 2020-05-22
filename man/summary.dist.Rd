@@ -4,12 +4,14 @@
 \alias{summary.dist}
 \title{A summary of results from a distribution}
 \usage{
-\method{summary}{dist}(object, pass = 0.4, ...)
+\method{summary}{dist}(object, pass = 0.4, probs = TRUE, ...)
 }
 \arguments{
 \item{object}{A simulated distribution}
 
 \item{pass}{The percentage required in order to pass. Must be between 0 and 1.}
+
+\item{probs}{A logic statement determining if the simulated probabilities should be printed.}
 
 \item{...}{Additional arguments affecting the summary produced.}
 }
